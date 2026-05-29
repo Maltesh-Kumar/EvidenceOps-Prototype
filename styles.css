@@ -178,10 +178,10 @@ button {
   position: relative;
   display: flex;
   justify-content: space-between;
-  gap: 22px;
-  align-items: flex-start;
+  gap: 18px;
+  align-items: center;
   margin-bottom: 16px;
-  padding: 30px;
+  padding: 24px 26px;
   border: 1px solid rgba(216, 255, 114, 0.26);
   border-radius: 24px;
   background:
@@ -217,18 +217,18 @@ p {
 }
 
 h1 {
-  margin-bottom: 12px;
+  margin-bottom: 8px;
   max-width: 850px;
-  font-size: clamp(34px, 5vw, 60px);
-  line-height: 0.98;
+  font-size: clamp(30px, 4vw, 48px);
+  line-height: 1.02;
   letter-spacing: 0;
 }
 
 .hero-copy p {
-  max-width: 720px;
+  max-width: 580px;
   margin: 0;
   color: #cce0d7;
-  font-size: 16px;
+  font-size: 15px;
 }
 
 h2 {
@@ -277,6 +277,12 @@ h3 {
   color: #cce0d7;
   font-size: 12px;
   text-align: left;
+}
+
+.action-note {
+  max-width: 170px;
+  font-size: 12px;
+  text-align: right;
 }
 
 .actor-switcher select {
@@ -882,11 +888,11 @@ textarea {
 
   .topbar {
     display: grid;
-    padding: 22px;
+    padding: 20px;
   }
 
   h1 {
-    font-size: 36px;
+    font-size: 32px;
   }
 
   .metric-grid,

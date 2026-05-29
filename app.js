@@ -33,7 +33,7 @@ const api = {
 
 let state = null;
 let selectedVendorId = null;
-let selectedActor = "Admin";
+let selectedRole = "Admin / Ops Manager";
 let vendorFilter = "All";
 let vendorSearch = "";
 
@@ -44,6 +44,20 @@ const viewMeta = {
   templates: ["Reusable checklists", "Evidence requirement templates"],
   followups: ["Owner accountability", "Follow-ups and unresolved risks"],
   audit: ["Audit-ready history", "Timeline of evidence decisions"],
+};
+
+const roleHints = {
+  "Admin / Ops Manager": "Create reviews, assign owners, and monitor evidence readiness.",
+  "Vendor Owner": "Submit evidence and complete follow-ups assigned to your team.",
+  "Reviewer": "Review submissions, flag risks, and make evidence decisions.",
+  "Leadership / Auditor": "Read-only visibility into risk posture, decisions, and audit history.",
+};
+
+const rolePermissions = {
+  "Admin / Ops Manager": ["createVendor", "viewAll"],
+  "Vendor Owner": ["submitEvidence", "manageFollowups"],
+  "Reviewer": ["reviewEvidence", "manageIssues"],
+  "Leadership / Auditor": ["readOnly"],
 };
 
 document.addEventListener("DOMContentLoaded", async () => {
@@ -68,8 +82,8 @@ function jsonPost(payload) {
 
 async function loadState(nextState) {
   state = nextState || await api.state();
-  if (state.users?.length && !state.users.some((user) => user.name === selectedActor)) {
-    selectedActor = state.users[0].name;
+  if (state.users?.length && !availableRoles().includes(selectedRole)) {
+    selectedRole = availableRoles()[0];
   }
   if (!selectedVendorId && state.vendors.length) selectedVendorId = state.vendors[0].id;
   if (!state.vendors.some((vendor) => vendor.id === selectedVendorId)) {
@@ -103,11 +117,6 @@ function bindNavigation() {
       renderVendors();
     });
   });
-
-  document.getElementById("resetDemoBtn").addEventListener("click", async () => {
-    selectedVendorId = null;
-    await loadState(await api.reset());
-  });
 }
 
 function bindDialogs() {
@@ -134,7 +143,7 @@ function bindDialogs() {
       reviewer: form.elements.reviewer.value,
       stage: form.elements.stage.value,
       dueDate: form.elements.dueDate.value,
-      actor: selectedActor,
+      actor: actorName(),
       riskAnswers: Object.fromEntries(["pii", "financial", "storesData", "api", "critical", "ai", "subprocessors", "unknownSubprocessors"].map((key) => [key, form.elements[key].checked])),
     };
     await loadState(await api.createVendor(payload));
@@ -152,14 +161,14 @@ function bindDialogs() {
       formData.append("file", file);
       formData.append("validUntil", form.elements.validUntil.value || "");
       formData.append("notes", form.elements.notes.value);
-      formData.append("actor", selectedActor);
+      formData.append("actor", actorName());
       await loadState(await api.uploadEvidence(form.elements.vendorId.value, form.elements.evidenceId.value, formData));
     } else {
       await loadState(await api.submitEvidence(form.elements.vendorId.value, form.elements.evidenceId.value, {
         fileName: form.elements.fileName.value,
         validUntil: form.elements.validUntil.value || null,
         notes: form.elements.notes.value,
-        actor: selectedActor,
+        actor: actorName(),
       }));
     }
     evidenceDialog.close();
@@ -180,12 +189,34 @@ function renderAll() {
 function renderActorSelect() {
   const select = document.getElementById("actorSelect");
   if (!select || !state.users) return;
-  select.innerHTML = state.users
-    .map((user) => `<option value="${user.name}" ${user.name === selectedActor ? "selected" : ""}>${user.name} - ${user.role}</option>`)
+  select.innerHTML = availableRoles()
+    .map((role) => `<option value="${role}" ${role === selectedRole ? "selected" : ""}>${role}</option>`)
     .join("");
   select.onchange = () => {
-    selectedActor = select.value;
+    selectedRole = select.value;
+    renderAll();
   };
+  const role = currentRole();
+  document.getElementById("roleHint").textContent = roleHints[role] || "High-risk vendors, evidence gaps, and next actions in one place.";
+  document.getElementById("newVendorBtn").hidden = !can("createVendor");
+}
+
+function availableRoles() {
+  const order = ["Admin / Ops Manager", "Vendor Owner", "Reviewer", "Leadership / Auditor"];
+  const roles = [...new Set((state.users || []).map((user) => user.role))];
+  return order.filter((role) => roles.includes(role));
+}
+
+function currentRole() {
+  return selectedRole;
+}
+
+function actorName() {
+  return state.users?.find((user) => user.role === selectedRole)?.name || selectedRole;
+}
+
+function can(permission) {
+  return rolePermissions[currentRole()]?.includes(permission);
 }
 
 function renderDashboard() {
@@ -258,6 +289,17 @@ function vendorDetail(vendor) {
 
 function evidenceItem(vendor, item) {
   const ai = item.aiReview;
+  const submitAction = can("submitEvidence")
+    ? `<button class="mini-button" data-action="submit" data-vendor="${vendor.id}" data-evidence="${item.id}">Submit</button>`
+    : "";
+  const reviewActions = can("reviewEvidence")
+    ? `
+        <button class="mini-button" data-action="approve" data-vendor="${vendor.id}" data-evidence="${item.id}">Approve</button>
+        <button class="mini-button" data-action="clarify" data-vendor="${vendor.id}" data-evidence="${item.id}">Clarify</button>
+        <button class="mini-button" data-action="reject" data-vendor="${vendor.id}" data-evidence="${item.id}">Reject</button>
+      `
+    : "";
+  const actionEmpty = submitAction || reviewActions ? "" : `<span class="muted action-note">Read-only for ${currentRole()}</span>`;
   return `
     <article class="evidence-item">
       <div>
@@ -270,24 +312,28 @@ function evidenceItem(vendor, item) {
       </div>
       <div class="row-actions">
         ${pill(item.status, statusClass(item.status))}
-        <button class="mini-button" data-action="submit" data-vendor="${vendor.id}" data-evidence="${item.id}">Submit</button>
-        <button class="mini-button" data-action="approve" data-vendor="${vendor.id}" data-evidence="${item.id}">Approve</button>
-        <button class="mini-button" data-action="clarify" data-vendor="${vendor.id}" data-evidence="${item.id}">Clarify</button>
-        <button class="mini-button" data-action="reject" data-vendor="${vendor.id}" data-evidence="${item.id}">Reject</button>
+        ${submitAction}
+        ${reviewActions}
+        ${actionEmpty}
       </div>
     </article>
   `;
 }
 
 function issueItem(vendor, issue) {
+  const issueActions = can("manageIssues")
+    ? `
+        <button class="mini-button" data-action="issue-accepted" data-vendor="${vendor.id}" data-issue="${issue.id}">Accept Risk</button>
+        <button class="mini-button" data-action="issue-resolved" data-vendor="${vendor.id}" data-issue="${issue.id}">Resolve</button>
+      `
+    : `<span class="muted action-note">Reviewer action required</span>`;
   return `
     <article class="issue-item">
       <div class="status-row">${pill(issue.severity, issue.severity.toLowerCase())}${pill(issue.status, statusClass(issue.status))}</div>
       <strong>${issue.title}</strong>
       <p class="muted">${issue.recommendation}</p>
       <div class="row-actions">
-        <button class="mini-button" data-action="issue-accepted" data-vendor="${vendor.id}" data-issue="${issue.id}">Accept Risk</button>
-        <button class="mini-button" data-action="issue-resolved" data-vendor="${vendor.id}" data-issue="${issue.id}">Resolve</button>
+        ${issueActions}
       </div>
     </article>
   `;
@@ -298,11 +344,11 @@ function bindVendorDetailActions() {
     button.addEventListener("click", async () => {
       const action = button.dataset.action;
       if (action === "submit") return openEvidenceDialog(button.dataset.vendor, button.dataset.evidence);
-      if (action === "approve") return loadState(await api.decideEvidence(button.dataset.vendor, button.dataset.evidence, { decision: "Approved", reason: "Reviewer confirmed evidence is acceptable.", createIssue: false, actor: selectedActor }));
-      if (action === "clarify") return loadState(await api.decideEvidence(button.dataset.vendor, button.dataset.evidence, { decision: "Needs Clarification", reason: "Additional detail is required before approval.", createIssue: true, actor: selectedActor }));
-      if (action === "reject") return loadState(await api.decideEvidence(button.dataset.vendor, button.dataset.evidence, { decision: "Rejected", reason: "Evidence does not satisfy the requirement.", createIssue: true, actor: selectedActor }));
-      if (action === "issue-accepted") return loadState(await api.updateIssue(button.dataset.vendor, button.dataset.issue, "Accepted Risk", selectedActor));
-      if (action === "issue-resolved") return loadState(await api.updateIssue(button.dataset.vendor, button.dataset.issue, "Resolved", selectedActor));
+      if (action === "approve") return loadState(await api.decideEvidence(button.dataset.vendor, button.dataset.evidence, { decision: "Approved", reason: "Reviewer confirmed evidence is acceptable.", createIssue: false, actor: actorName() }));
+      if (action === "clarify") return loadState(await api.decideEvidence(button.dataset.vendor, button.dataset.evidence, { decision: "Needs Clarification", reason: "Additional detail is required before approval.", createIssue: true, actor: actorName() }));
+      if (action === "reject") return loadState(await api.decideEvidence(button.dataset.vendor, button.dataset.evidence, { decision: "Rejected", reason: "Evidence does not satisfy the requirement.", createIssue: true, actor: actorName() }));
+      if (action === "issue-accepted") return loadState(await api.updateIssue(button.dataset.vendor, button.dataset.issue, "Accepted Risk", actorName()));
+      if (action === "issue-resolved") return loadState(await api.updateIssue(button.dataset.vendor, button.dataset.issue, "Resolved", actorName()));
     });
   });
 }
@@ -343,21 +389,24 @@ function renderTemplates() {
 }
 
 function renderFollowups() {
+  const canManage = can("manageFollowups");
   document.getElementById("followupList").innerHTML = state.followups.map((item) => `
     <article class="followup-item">
       <div class="status-row">${pill(item.status, statusClass(item.status))}<span class="muted">Due ${item.dueDate}</span></div>
       <strong>${item.vendorName}</strong>
       <p>${item.message}</p>
       <div class="row-actions">
-        <button class="mini-button" data-followup="${item.id}" data-vendor="${item.vendorId}" data-status="Sent">Mark Sent</button>
-        <button class="mini-button" data-followup="${item.id}" data-vendor="${item.vendorId}" data-status="Completed">Complete</button>
+        ${canManage
+          ? `<button class="mini-button" data-followup="${item.id}" data-vendor="${item.vendorId}" data-status="Sent">Mark Sent</button>
+             <button class="mini-button" data-followup="${item.id}" data-vendor="${item.vendorId}" data-status="Completed">Complete</button>`
+          : `<span class="muted action-note">Owner action required</span>`}
       </div>
     </article>
   `).join("") || empty("No follow-ups are open.");
 
   document.querySelectorAll("[data-followup]").forEach((button) => {
     button.addEventListener("click", async () => {
-      await loadState(await api.updateFollowup(button.dataset.vendor, button.dataset.followup, button.dataset.status, selectedActor));
+      await loadState(await api.updateFollowup(button.dataset.vendor, button.dataset.followup, button.dataset.status, actorName()));
     });
   });
 }
