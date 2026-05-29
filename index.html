@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>EvidenceOps Assistant Prototype</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="EvidenceOps navigation">
+        <div class="brand">
+          <div class="brand-mark">E</div>
+          <div>
+            <strong>EvidenceOps</strong>
+            <span>Autonomous TPRM assistant</span>
+          </div>
+        </div>
+        <nav class="nav">
+          <button class="nav-item active" data-view="dashboard">Dashboard</button>
+          <button class="nav-item" data-view="vendors">Vendors</button>
+          <button class="nav-item" data-view="queue">Reviewer Queue</button>
+          <button class="nav-item" data-view="templates">Templates</button>
+          <button class="nav-item" data-view="followups">Follow-ups</button>
+          <button class="nav-item" data-view="audit">Audit Trail</button>
+        </nav>
+        <div class="sidebar-panel">
+          <span class="eyebrow">Live trust posture</span>
+          <strong>High-risk AI SaaS review</strong>
+          <p>Tier vendors, collect evidence, detect gaps, route follow-ups, and keep every decision audit-ready.</p>
+        </div>
+      </aside>
+
+      <main class="main">
+        <header class="topbar">
+          <div class="hero-copy">
+            <span class="eyebrow" id="viewEyebrow">Operations dashboard</span>
+            <h1 id="viewTitle">Evidence review command center</h1>
+            <p>Continuously understand which vendors are safe to approve, what evidence supports the decision, and who must act next.</p>
+          </div>
+          <div class="topbar-actions">
+            <button class="secondary" id="resetDemoBtn">Reset demo data</button>
+            <button class="primary" id="newVendorBtn">New vendor review</button>
+          </div>
+        </header>
+        <section class="trust-strip" aria-label="EvidenceOps trust signals">
+          <div><span>Autonomous risk tiering</span><strong>PII, AI, API, criticality</strong></div>
+          <div><span>AI-assisted review</span><strong>Summaries, flags, confidence</strong></div>
+          <div><span>Human decisions</span><strong>Approve, reject, clarify, accept risk</strong></div>
+          <div><span>Audit-ready history</span><strong>Every action timestamped</strong></div>
+        </section>
+
+        <section class="view active" id="dashboardView">
+          <div class="metric-grid" id="metricGrid"></div>
+          <div class="split-layout">
+            <section class="panel">
+              <div class="panel-header">
+                <div>
+                  <span class="eyebrow">Blocked and risky</span>
+                  <h2>Vendors needing attention</h2>
+                </div>
+              </div>
+              <div class="vendor-list compact" id="attentionList"></div>
+            </section>
+            <section class="panel">
+              <div class="panel-header">
+                <div>
+                  <span class="eyebrow">Prioritized</span>
+                  <h2>Reviewer work queue</h2>
+                </div>
+              </div>
+              <div id="dashboardQueue"></div>
+            </section>
+          </div>
+        </section>
+
+        <section class="view" id="vendorsView">
+          <div class="toolbar">
+            <div class="segmented" id="vendorFilters">
+              <button class="active" data-filter="All">All</button>
+              <button data-filter="Action Required">Action Required</button>
+              <button data-filter="Ready for Review">Ready</button>
+              <button data-filter="Approved">Approved</button>
+              <button data-filter="Approved with Risk">Approved with Risk</button>
+            </div>
+            <label class="search">
+              <span>Search</span>
+              <input id="vendorSearch" type="search" placeholder="Vendor, category, owner" />
+            </label>
+          </div>
+          <div class="vendor-workspace">
+            <section class="panel vendor-table-panel">
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Vendor</th>
+                      <th>Risk</th>
+                      <th>Status</th>
+                      <th>Progress</th>
+                      <th>Owner</th>
+                    </tr>
+                  </thead>
+                  <tbody id="vendorTable"></tbody>
+                </table>
+              </div>
+            </section>
+            <section class="panel detail-panel" id="vendorDetail"></section>
+          </div>
+        </section>
+
+        <section class="view" id="queueView">
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <span class="eyebrow">AI assisted review</span>
+                <h2>Submitted evidence sorted by urgency</h2>
+              </div>
+            </div>
+            <div id="queueList"></div>
+          </section>
+        </section>
+
+        <section class="view" id="templatesView">
+          <div class="template-grid" id="templateGrid"></div>
+        </section>
+
+        <section class="view" id="followupsView">
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <span class="eyebrow">Owner accountability</span>
+                <h2>Open vendor follow-ups</h2>
+              </div>
+            </div>
+            <div id="followupList"></div>
+          </section>
+        </section>
+
+        <section class="view" id="auditView">
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <span class="eyebrow">Audit-ready history</span>
+                <h2>Timeline of decisions and evidence events</h2>
+              </div>
+            </div>
+            <div class="timeline" id="auditTimeline"></div>
+          </section>
+        </section>
+      </main>
+    </div>
+
+    <dialog id="vendorDialog">
+      <form method="dialog" class="modal" id="vendorForm">
+        <div class="modal-header">
+          <div>
+            <span class="eyebrow">Vendor intake</span>
+            <h2>Create vendor review</h2>
+          </div>
+          <button class="icon-button" type="button" id="closeVendorDialog" aria-label="Close">×</button>
+        </div>
+        <div class="form-grid">
+          <label>Vendor name<input name="name" required value="NexusAI Support" /></label>
+          <label>Category<input name="category" required value="Customer Support AI SaaS" /></label>
+          <label>Business owner<input name="owner" required value="Head of Support" /></label>
+          <label>Reviewer<input name="reviewer" required value="Security Manager" /></label>
+          <label>Contract stage
+            <select name="stage">
+              <option>Pre-onboarding</option>
+              <option>Annual review</option>
+              <option>Exception review</option>
+            </select>
+          </label>
+          <label>Due date<input name="dueDate" type="date" required /></label>
+        </div>
+        <div class="risk-box">
+          <h3>Risk questions</h3>
+          <div class="check-grid">
+            <label><input type="checkbox" name="pii" checked /> Customer PII access</label>
+            <label><input type="checkbox" name="financial" /> Financial or payment data</label>
+            <label><input type="checkbox" name="storesData" checked /> Stores customer/company data</label>
+            <label><input type="checkbox" name="api" checked /> API or webhook integration</label>
+            <label><input type="checkbox" name="critical" checked /> Business-critical workflow</label>
+            <label><input type="checkbox" name="ai" checked /> Uses AI on customer/company data</label>
+            <label><input type="checkbox" name="subprocessors" /> Uses subprocessors</label>
+            <label><input type="checkbox" name="unknownSubprocessors" checked /> Subprocessors unknown</label>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button class="secondary" type="button" id="cancelVendor">Cancel</button>
+          <button class="primary" type="submit">Create and apply recommended template</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="evidenceDialog">
+      <form method="dialog" class="modal" id="evidenceForm">
+        <div class="modal-header">
+          <div>
+            <span class="eyebrow">Evidence submission</span>
+            <h2 id="evidenceDialogTitle">Submit evidence</h2>
+          </div>
+          <button class="icon-button" type="button" id="closeEvidenceDialog" aria-label="Close">×</button>
+        </div>
+        <input type="hidden" name="vendorId" />
+        <input type="hidden" name="evidenceId" />
+        <div class="form-grid">
+          <label>File name<input name="fileName" required placeholder="acme-soc2.pdf" /></label>
+          <label>Valid until<input name="validUntil" type="date" /></label>
+          <label class="wide">Notes<textarea name="notes" placeholder="Latest report received from vendor"></textarea></label>
+        </div>
+        <div class="modal-actions">
+          <button class="secondary" type="button" id="cancelEvidence">Cancel</button>
+          <button class="primary" type="submit">Submit and run AI review</button>
+        </div>
+      </form>
+    </dialog>
+
+    <script src="app.js"></script>
+  </body>
+</html>
