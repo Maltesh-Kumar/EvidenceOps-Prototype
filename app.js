@@ -54,10 +54,10 @@ const roleHints = {
 };
 
 const rolePermissions = {
-  "Admin / Ops Manager": ["createVendor", "viewAll"],
+  "Admin / Ops Manager": ["createVendor", "viewAll", "viewQueue", "viewTemplates", "viewAudit"],
   "Vendor Owner": ["submitEvidence", "manageFollowups"],
-  "Reviewer": ["reviewEvidence", "manageIssues"],
-  "Leadership / Auditor": ["readOnly"],
+  "Reviewer": ["reviewEvidence", "manageIssues", "viewQueue"],
+  "Leadership / Auditor": ["readOnly", "viewAudit"],
 };
 
 document.addEventListener("DOMContentLoaded", async () => {
@@ -177,10 +177,12 @@ function bindDialogs() {
 
 function renderAll() {
   renderActorSelect();
+  const ids = scopedVendorIds();
+  if (selectedVendorId && !ids.has(selectedVendorId)) selectedVendorId = scopedVendors()[0]?.id || null;
   renderDashboard();
   renderVendors();
-  renderQueue("dashboardQueue", state.queue.slice(0, 4));
-  renderQueue("queueList", state.queue);
+  renderQueue("dashboardQueue", scopedQueue().slice(0, 4));
+  renderQueue("queueList", scopedQueue(), !can("viewQueue"));
   renderTemplates();
   renderFollowups();
   renderAudit();
@@ -212,21 +214,116 @@ function currentRole() {
 }
 
 function actorName() {
-  return state.users?.find((user) => user.role === selectedRole)?.name || selectedRole;
+  const preferred = {
+    "Admin / Ops Manager": "Admin",
+    "Vendor Owner": "Head of Support",
+    "Reviewer": "Security Manager",
+    "Leadership / Auditor": "Leadership",
+  };
+  return preferred[selectedRole] || state.users?.find((user) => user.role === selectedRole)?.name || selectedRole;
 }
 
 function can(permission) {
   return rolePermissions[currentRole()]?.includes(permission);
 }
 
+function scopedVendors() {
+  if (can("viewAll") || currentRole() === "Leadership / Auditor") return state.vendors;
+  if (currentRole() === "Vendor Owner") {
+    const actor = actorName();
+    return state.vendors.filter((vendor) =>
+      vendor.owner === actor ||
+      vendor.followups.some((followup) => followup.owner === actor) ||
+      vendor.evidence.some((item) => ["Requested", "Missing", "Needs Clarification"].includes(item.status))
+    );
+  }
+  if (currentRole() === "Reviewer") {
+    return state.vendors.filter((vendor) =>
+      vendor.reviewer === actorName() ||
+      vendor.evidence.some((item) => ["Submitted", "Needs Clarification", "Expired", "Rejected"].includes(item.status)) ||
+      vendor.riskIssues.length
+    );
+  }
+  return [];
+}
+
+function scopedVendorIds() {
+  return new Set(scopedVendors().map((vendor) => vendor.id));
+}
+
+function scopedQueue() {
+  if (!can("viewQueue")) return [];
+  const ids = scopedVendorIds();
+  return state.queue.filter((item) => ids.has(item.vendorId));
+}
+
+function scopedFollowups() {
+  if (can("viewAll")) return state.followups;
+  if (currentRole() !== "Vendor Owner") return [];
+  return state.followups.filter((item) => item.owner === actorName());
+}
+
+function scopedAudit() {
+  if (can("viewAll") || currentRole() === "Leadership / Auditor") return state.audit;
+  const ids = scopedVendorIds();
+  return state.audit.filter((entry) => ids.has(entry.vendorId));
+}
+
+function roleEmptyState(screen) {
+  return empty(`${currentRole()} does not have ${screen} access in this workflow.`);
+}
+
 function renderDashboard() {
   const metricGrid = document.getElementById("metricGrid");
-  metricGrid.innerHTML = Object.entries(state.metrics)
-    .map(([label, value]) => `<article class="metric"><span>${label}</span><strong>${value}</strong></article>`)
+  const vendors = scopedVendors();
+  metricGrid.innerHTML = dashboardGroups(vendors)
+    .map((group) => `
+      <article class="metric metric-wide">
+        <span>${group.label}</span>
+        <strong>${group.value}</strong>
+        <p>${group.detail}</p>
+      </article>
+    `)
     .join("");
 
-  const attention = state.vendors.filter((vendor) => ["Action Required", "Ready for Review", "Approved with Risk"].includes(vendor.status));
+  const attention = vendors.filter((vendor) => ["Action Required", "Ready for Review", "Approved with Risk"].includes(vendor.status));
   document.getElementById("attentionList").innerHTML = attention.map(vendorCard).join("") || empty("No vendors need attention.");
+}
+
+function dashboardGroups(vendors) {
+  const evidence = vendors.flatMap((vendor) => vendor.evidence);
+  const queue = scopedQueue();
+  const actionRequired = vendors.filter((vendor) => vendor.status === "Action Required").length;
+  const approved = vendors.filter((vendor) => vendor.status === "Approved").length;
+  const highRisk = vendors.filter((vendor) => vendor.risk.tier === "High").length;
+  const pending = evidence.filter((item) => ["Requested", "Missing"].includes(item.status)).length;
+  const openFollowups = scopedFollowups().filter((item) => !["Completed", "Cancelled"].includes(item.status)).length;
+  if (currentRole() === "Vendor Owner") {
+    return [
+      { label: "My vendors", value: vendors.length, detail: `${pending} evidence items need submission` },
+      { label: "Follow-ups", value: openFollowups, detail: "Assigned items waiting on owner action" },
+      { label: "Blocked reviews", value: actionRequired, detail: "Vendor reviews needing evidence or clarification" },
+    ];
+  }
+  if (currentRole() === "Reviewer") {
+    return [
+      { label: "Review queue", value: queue.length, detail: "Evidence items waiting for reviewer action" },
+      { label: "High-risk scope", value: highRisk, detail: "Vendors with elevated review priority" },
+      { label: "Action required", value: actionRequired, detail: "Blocked vendors or unresolved risk issues" },
+    ];
+  }
+  if (currentRole() === "Leadership / Auditor") {
+    return [
+      { label: "Vendors tracked", value: vendors.length, detail: `${highRisk} high-risk vendors under oversight` },
+      { label: "Risk posture", value: actionRequired, detail: "Vendors currently blocked or risky" },
+      { label: "Approved", value: approved, detail: "Reviews with acceptable evidence posture" },
+    ];
+  }
+  return [
+    { label: "Active reviews", value: vendors.filter((vendor) => vendor.status !== "Approved").length, detail: `${highRisk} high-risk vendors in scope` },
+    { label: "Evidence workload", value: pending, detail: "Requested or overdue evidence items" },
+    { label: "Needs attention", value: actionRequired, detail: "Blocked vendors and unresolved risks" },
+  ];
 }
 
 function renderVendors() {
@@ -248,13 +345,13 @@ function renderVendors() {
     });
   });
 
-  const selected = state.vendors.find((vendor) => vendor.id === selectedVendorId) || rows[0];
+  const selected = scopedVendors().find((vendor) => vendor.id === selectedVendorId) || rows[0];
   document.getElementById("vendorDetail").innerHTML = selected ? vendorDetail(selected) : empty("No vendor selected.");
   bindVendorDetailActions();
 }
 
 function filteredVendors() {
-  return state.vendors.filter((vendor) => {
+  return scopedVendors().filter((vendor) => {
     const matchesFilter = vendorFilter === "All" || vendor.status === vendorFilter;
     const haystack = `${vendor.name} ${vendor.category} ${vendor.owner} ${vendor.reviewer}`.toLowerCase();
     return matchesFilter && haystack.includes(vendorSearch);
@@ -367,8 +464,8 @@ function openEvidenceDialog(vendorId, evidenceId) {
   document.getElementById("evidenceDialog").showModal();
 }
 
-function renderQueue(targetId, queue) {
-  document.getElementById(targetId).innerHTML = queue.map((item) => `
+function renderQueue(targetId, queue, restricted = false) {
+  document.getElementById(targetId).innerHTML = restricted ? roleEmptyState("review queue") : queue.map((item) => `
     <article class="queue-item">
       <div><strong>${item.vendorName}</strong><br><span class="muted">${item.evidenceName}</span></div>
       <div>${pill(item.riskTier, item.riskTier.toLowerCase())} ${pill(item.priority, item.priority.toLowerCase())}<br><span class="muted">Due ${item.dueDate}</span></div>
@@ -378,19 +475,22 @@ function renderQueue(targetId, queue) {
 }
 
 function renderTemplates() {
-  document.getElementById("templateGrid").innerHTML = state.templates.map((template) => `
+  document.getElementById("templateGrid").innerHTML = can("viewTemplates") ? state.templates.map((template) => `
     <article class="template-card">
       <div class="status-row">${pill(template.riskTier, template.riskTier.toLowerCase())}</div>
       <h2>${template.name}</h2>
       <p class="muted">${template.description}</p>
       <ul>${template.requirements.map((item) => `<li>${item.name} - ${item.requiredType}</li>`).join("")}</ul>
     </article>
-  `).join("");
+  `).join("") : roleEmptyState("template management");
 }
 
 function renderFollowups() {
   const canManage = can("manageFollowups");
-  document.getElementById("followupList").innerHTML = state.followups.map((item) => `
+  const followups = scopedFollowups();
+  document.getElementById("followupList").innerHTML = currentRole() === "Reviewer" || currentRole() === "Leadership / Auditor"
+    ? roleEmptyState("follow-up management")
+    : followups.map((item) => `
     <article class="followup-item">
       <div class="status-row">${pill(item.status, statusClass(item.status))}<span class="muted">Due ${item.dueDate}</span></div>
       <strong>${item.vendorName}</strong>
@@ -412,7 +512,10 @@ function renderFollowups() {
 }
 
 function renderAudit() {
-  document.getElementById("auditTimeline").innerHTML = state.audit.map((entry) => `
+  const audit = scopedAudit();
+  document.getElementById("auditTimeline").innerHTML = currentRole() === "Vendor Owner"
+    ? roleEmptyState("full audit trail")
+    : audit.map((entry) => `
     <article class="timeline-item">
       <span>${entry.time}</span>
       <strong>${entry.actor}</strong>

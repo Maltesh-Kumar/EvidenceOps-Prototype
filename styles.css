@@ -219,8 +219,8 @@ p {
 h1 {
   margin-bottom: 8px;
   max-width: 850px;
-  font-size: clamp(30px, 4vw, 48px);
-  line-height: 1.02;
+  font-size: clamp(26px, 3.2vw, 38px);
+  line-height: 1.08;
   letter-spacing: 0;
 }
 
@@ -389,13 +389,13 @@ h3 {
 
 .metric-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(170px, 1fr));
+  grid-template-columns: repeat(3, minmax(220px, 1fr));
   gap: 14px;
   margin-bottom: 18px;
 }
 
 .metric {
-  min-height: 128px;
+  min-height: 116px;
   padding: 18px;
   border: 1px solid var(--line);
   border-radius: 18px;
@@ -415,9 +415,15 @@ h3 {
 
 .metric strong {
   display: block;
-  margin-top: 14px;
-  font-size: 36px;
+  margin-top: 10px;
+  font-size: 34px;
   line-height: 1;
+}
+
+.metric p {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 13px;
 }
 
 .metric:nth-child(2n)::before {
