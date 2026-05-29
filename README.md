@@ -11,6 +11,9 @@ It demonstrates:
 - Follow-up tracking
 - Vendor status rollups
 - Audit-ready activity history
+- SQLite-backed durable storage
+- Local evidence file storage for uploaded files
+- Persona-based audit actions
 
 ## Run locally
 
@@ -23,4 +26,16 @@ Then open:
 
 ```text
 http://127.0.0.1:8000/
+```
+
+The app creates its local database at:
+
+```text
+data/evidenceops.sqlite
+```
+
+Uploaded evidence files are stored under:
+
+```text
+uploads/
 ```

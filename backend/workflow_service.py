@@ -1,33 +1,43 @@
 from datetime import date
+from pathlib import Path
+from shutil import copyfileobj
 from uuid import uuid4
 
 from .ai_review import review_evidence
-from .audit_log import add_audit
+from .database import EvidenceOpsDB
 from .risk_engine import calculate_risk
-from .seed_data import create_seed_db, make_evidence
+from .seed_data import make_evidence
 from .status_engine import evidence_progress, mark_missing_or_overdue, rollup_vendor_status
 from .templates import get_template, recommend_template
 
 
 class WorkflowService:
     def __init__(self):
-        self.db = create_seed_db()
+        self.db = EvidenceOpsDB()
+        self.upload_dir = Path(__file__).resolve().parent.parent / "uploads"
+        self.upload_dir.mkdir(exist_ok=True)
 
     def reset(self):
-        self.db = create_seed_db()
+        self.db.reset_to_demo()
         return self.state()
 
     def state(self):
-        for vendor in self.db["vendors"].values():
+        data = self.db.load_state()
+        vendors = data["vendors"]
+        for vendor in vendors:
+            previous_status = vendor["status"]
             mark_missing_or_overdue(vendor)
-        vendors = list(self.db["vendors"].values())
+            if vendor["status"] != previous_status:
+                self.db.save_vendor(vendor)
+                self.db.add_audit("System", f"Updated vendor status to {vendor['status']}", vendor["id"], vendor["name"])
         return {
             "vendors": vendors,
-            "templates": self.db["templates"],
+            "templates": data["templates"],
+            "users": data["users"],
             "metrics": self.metrics(vendors),
             "queue": self.reviewer_queue(vendors),
             "followups": self.followups(vendors),
-            "audit": self.db["audit"],
+            "audit": data["audit"],
         }
 
     def metrics(self, vendors):
@@ -104,10 +114,11 @@ class WorkflowService:
             "progress": 0,
         }
         vendor["status"] = rollup_vendor_status(vendor)
-        self.db["vendors"][vendor_id] = vendor
-        add_audit(self.db, "Admin", f"Created vendor {vendor['name']}", vendor_id, vendor["name"])
-        add_audit(self.db, "System", f"Calculated {risk['tier']} risk score {risk['score']}", vendor_id, "Risk assessment", {"signals": risk["signals"]})
-        add_audit(self.db, "Admin", f"Applied template {template['name']}", vendor_id, template["name"])
+        self.db.save_vendor(vendor)
+        actor = payload.get("actor") or "Admin"
+        self.db.add_audit(actor, f"Created vendor {vendor['name']}", vendor_id, vendor["name"])
+        self.db.add_audit("System", f"Calculated {risk['tier']} risk score {risk['score']}", vendor_id, "Risk assessment", {"signals": risk["signals"]})
+        self.db.add_audit(actor, f"Applied template {template['name']}", vendor_id, template["name"])
         return self.state()
 
     def submit_evidence(self, vendor_id, evidence_id, payload):
@@ -120,6 +131,7 @@ class WorkflowService:
                 "submittedAt": date.today().isoformat(),
                 "validUntil": payload.get("validUntil") or None,
                 "notes": payload.get("notes", ""),
+                "storedPath": payload.get("storedFile") or evidence.get("storedPath"),
             }
         )
         evidence["aiReview"] = review_evidence(vendor, evidence)
@@ -127,9 +139,31 @@ class WorkflowService:
             evidence["status"] = "Expired"
         vendor["status"] = rollup_vendor_status(vendor)
         vendor["progress"] = evidence_progress(vendor)
-        add_audit(self.db, vendor["owner"], f"Uploaded {evidence['name']}", vendor_id, evidence["name"], {"fileName": evidence["fileName"]})
-        add_audit(self.db, "AI Assistant", f"Completed AI review for {evidence['name']}", vendor_id, evidence["name"], {"flags": evidence["aiReview"]["flags"]})
+        self.db.save_vendor(vendor)
+        actor = payload.get("actor") or payload.get("submittedBy") or vendor["owner"]
+        self.db.add_audit(actor, f"Uploaded {evidence['name']}", vendor_id, evidence["name"], {"fileName": evidence["fileName"]})
+        self.db.add_audit("AI Assistant", f"Completed AI review for {evidence['name']}", vendor_id, evidence["name"], {"flags": evidence["aiReview"]["flags"]})
         return self.state()
+
+    def upload_evidence_file(self, vendor_id, evidence_id, upload_file, valid_until=None, notes="", actor=None):
+        vendor, evidence = self.find_evidence(vendor_id, evidence_id)
+        safe_name = Path(upload_file.filename).name
+        stored_name = f"{vendor_id}-{evidence_id}-{uuid4().hex[:8]}-{safe_name}"
+        stored_path = self.upload_dir / stored_name
+        with stored_path.open("wb") as destination:
+            copyfileobj(upload_file.file, destination)
+        return self.submit_evidence(
+            vendor_id,
+            evidence_id,
+            {
+                "fileName": safe_name,
+                "storedFile": str(stored_path),
+                "validUntil": valid_until,
+                "notes": notes,
+                "submittedBy": vendor["owner"],
+                "actor": actor or vendor["owner"],
+            },
+        )
 
     def decide_evidence(self, vendor_id, evidence_id, payload):
         vendor, evidence = self.find_evidence(vendor_id, evidence_id)
@@ -141,7 +175,9 @@ class WorkflowService:
             self.create_issue(vendor, evidence, reason)
         vendor["status"] = rollup_vendor_status(vendor)
         vendor["progress"] = evidence_progress(vendor)
-        add_audit(self.db, vendor["reviewer"], f"Marked {evidence['name']} as {decision}", vendor_id, evidence["name"], {"reason": reason})
+        self.db.save_vendor(vendor)
+        actor = payload.get("actor") or vendor["reviewer"]
+        self.db.add_audit(actor, f"Marked {evidence['name']} as {decision}", vendor_id, evidence["name"], {"reason": reason})
         return self.state()
 
     def create_issue(self, vendor, evidence, reason):
@@ -166,37 +202,47 @@ class WorkflowService:
             "message": f"Please resolve: {issue['title']}. {issue['recommendation']}",
         }
         vendor["followups"].append(followup)
-        add_audit(self.db, "System", f"Created risk issue {issue['title']}", vendor["id"], evidence["name"])
-        add_audit(self.db, "System", f"Created follow-up for {vendor['owner']}", vendor["id"], issue["title"])
+        self.db.add_audit("System", f"Created risk issue {issue['title']}", vendor["id"], evidence["name"])
+        self.db.add_audit("System", f"Created follow-up for {vendor['owner']}", vendor["id"], issue["title"])
 
-    def update_issue_status(self, vendor_id, issue_id, status):
-        vendor = self.db["vendors"][vendor_id]
+    def update_issue_status(self, vendor_id, issue_id, status, actor=None):
+        vendor = self.find_vendor(vendor_id)
         for issue in vendor["riskIssues"]:
             if issue["id"] == issue_id:
                 issue["status"] = status
-                add_audit(self.db, vendor["reviewer"], f"Updated risk issue to {status}", vendor_id, issue["title"])
+                self.db.add_audit(actor or vendor["reviewer"], f"Updated risk issue to {status}", vendor_id, issue["title"])
                 break
         vendor["status"] = rollup_vendor_status(vendor)
+        vendor["progress"] = evidence_progress(vendor)
+        self.db.save_vendor(vendor)
         return self.state()
 
-    def update_followup_status(self, vendor_id, followup_id, status):
-        vendor = self.db["vendors"][vendor_id]
+    def update_followup_status(self, vendor_id, followup_id, status, actor=None):
+        vendor = self.find_vendor(vendor_id)
         for followup in vendor["followups"]:
             if followup["id"] == followup_id:
                 followup["status"] = status
-                add_audit(self.db, "Admin", f"Updated follow-up to {status}", vendor_id, followup["message"])
+                self.db.add_audit(actor or "Admin", f"Updated follow-up to {status}", vendor_id, followup["message"])
                 break
+        self.db.save_vendor(vendor)
         return self.state()
 
-    def reject_vendor(self, vendor_id, reason):
-        vendor = self.db["vendors"][vendor_id]
+    def reject_vendor(self, vendor_id, reason, actor=None):
+        vendor = self.find_vendor(vendor_id)
         vendor["overallDecision"] = "Rejected"
         vendor["status"] = "Rejected"
-        add_audit(self.db, vendor["reviewer"], f"Rejected vendor: {reason}", vendor_id, vendor["name"])
+        self.db.save_vendor(vendor)
+        self.db.add_audit(actor or vendor["reviewer"], f"Rejected vendor: {reason}", vendor_id, vendor["name"])
         return self.state()
 
+    def find_vendor(self, vendor_id):
+        for vendor in self.db.load_state()["vendors"]:
+            if vendor["id"] == vendor_id:
+                return vendor
+        raise KeyError(f"Unknown vendor {vendor_id}")
+
     def find_evidence(self, vendor_id, evidence_id):
-        vendor = self.db["vendors"][vendor_id]
+        vendor = self.find_vendor(vendor_id)
         for evidence in vendor["evidence"]:
             if evidence["id"] == evidence_id:
                 return vendor, evidence

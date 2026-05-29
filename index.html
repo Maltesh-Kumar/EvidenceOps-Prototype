@@ -39,6 +39,9 @@
             <p>Continuously understand which vendors are safe to approve, what evidence supports the decision, and who must act next.</p>
           </div>
           <div class="topbar-actions">
+            <label class="actor-switcher">Acting as
+              <select id="actorSelect"></select>
+            </label>
             <button class="secondary" id="resetDemoBtn">Reset demo data</button>
             <button class="primary" id="newVendorBtn">New vendor review</button>
           </div>
@@ -207,6 +210,7 @@
         <input type="hidden" name="evidenceId" />
         <div class="form-grid">
           <label>File name<input name="fileName" required placeholder="acme-soc2.pdf" /></label>
+          <label>Attach file<input name="file" type="file" /></label>
           <label>Valid until<input name="validUntil" type="date" /></label>
           <label class="wide">Notes<textarea name="notes" placeholder="Latest report received from vendor"></textarea></label>
         </div>

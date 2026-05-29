@@ -272,6 +272,24 @@ h3 {
   justify-content: flex-end;
 }
 
+.actor-switcher {
+  min-width: 190px;
+  color: #cce0d7;
+  font-size: 12px;
+  text-align: left;
+}
+
+.actor-switcher select {
+  margin-top: 5px;
+  border-color: rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+}
+
+.actor-switcher option {
+  color: var(--ink);
+}
+
 .primary,
 .secondary,
 .danger,

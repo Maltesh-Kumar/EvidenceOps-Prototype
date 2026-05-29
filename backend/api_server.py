@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -28,6 +28,7 @@ class VendorCreate(BaseModel):
     dueDate: str
     riskAnswers: dict = {}
     templateId: str | None = None
+    actor: str | None = None
 
 
 class EvidenceSubmit(BaseModel):
@@ -35,20 +36,24 @@ class EvidenceSubmit(BaseModel):
     validUntil: str | None = None
     notes: str = ""
     submittedBy: str | None = None
+    actor: str | None = None
 
 
 class EvidenceDecision(BaseModel):
     decision: str
     reason: str = ""
     createIssue: bool = True
+    actor: str | None = None
 
 
 class StatusUpdate(BaseModel):
     status: str
+    actor: str | None = None
 
 
 class VendorReject(BaseModel):
     reason: str
+    actor: str | None = None
 
 
 @app.get("/api/state")
@@ -71,6 +76,18 @@ def submit_evidence(vendor_id: str, evidence_id: str, payload: EvidenceSubmit):
     return service.submit_evidence(vendor_id, evidence_id, payload.model_dump())
 
 
+@app.post("/api/vendors/{vendor_id}/evidence/{evidence_id}/upload")
+def upload_evidence_file(
+    vendor_id: str,
+    evidence_id: str,
+    file: UploadFile = File(...),
+    validUntil: str | None = Form(None),
+    notes: str = Form(""),
+    actor: str | None = Form(None),
+):
+    return service.upload_evidence_file(vendor_id, evidence_id, file, validUntil, notes, actor)
+
+
 @app.post("/api/vendors/{vendor_id}/evidence/{evidence_id}/decision")
 def decide_evidence(vendor_id: str, evidence_id: str, payload: EvidenceDecision):
     return service.decide_evidence(vendor_id, evidence_id, payload.model_dump())
@@ -78,17 +95,17 @@ def decide_evidence(vendor_id: str, evidence_id: str, payload: EvidenceDecision)
 
 @app.post("/api/vendors/{vendor_id}/issues/{issue_id}")
 def update_issue(vendor_id: str, issue_id: str, payload: StatusUpdate):
-    return service.update_issue_status(vendor_id, issue_id, payload.status)
+    return service.update_issue_status(vendor_id, issue_id, payload.status, payload.actor)
 
 
 @app.post("/api/vendors/{vendor_id}/followups/{followup_id}")
 def update_followup(vendor_id: str, followup_id: str, payload: StatusUpdate):
-    return service.update_followup_status(vendor_id, followup_id, payload.status)
+    return service.update_followup_status(vendor_id, followup_id, payload.status, payload.actor)
 
 
 @app.post("/api/vendors/{vendor_id}/reject")
 def reject_vendor(vendor_id: str, payload: VendorReject):
-    return service.reject_vendor(vendor_id, payload.reason)
+    return service.reject_vendor(vendor_id, payload.reason, payload.actor)
 
 
 app.mount("/", StaticFiles(directory=ROOT, html=True), name="static")

@@ -1,5 +1,7 @@
 __pycache__/
 *.py[cod]
+data/
+uploads/
 .venv/
 venv/
 .env

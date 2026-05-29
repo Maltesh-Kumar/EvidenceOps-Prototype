@@ -11,14 +11,20 @@ const api = {
   async submitEvidence(vendorId, evidenceId, payload) {
     return request(`/api/vendors/${vendorId}/evidence/${evidenceId}/submit`, jsonPost(payload));
   },
+  async uploadEvidence(vendorId, evidenceId, formData) {
+    return request(`/api/vendors/${vendorId}/evidence/${evidenceId}/upload`, {
+      method: "POST",
+      body: formData,
+    });
+  },
   async decideEvidence(vendorId, evidenceId, payload) {
     return request(`/api/vendors/${vendorId}/evidence/${evidenceId}/decision`, jsonPost(payload));
   },
-  async updateIssue(vendorId, issueId, status) {
-    return request(`/api/vendors/${vendorId}/issues/${issueId}`, jsonPost({ status }));
+  async updateIssue(vendorId, issueId, status, actor) {
+    return request(`/api/vendors/${vendorId}/issues/${issueId}`, jsonPost({ status, actor }));
   },
-  async updateFollowup(vendorId, followupId, status) {
-    return request(`/api/vendors/${vendorId}/followups/${followupId}`, jsonPost({ status }));
+  async updateFollowup(vendorId, followupId, status, actor) {
+    return request(`/api/vendors/${vendorId}/followups/${followupId}`, jsonPost({ status, actor }));
   },
   async rejectVendor(vendorId, reason) {
     return request(`/api/vendors/${vendorId}/reject`, jsonPost({ reason }));
@@ -27,6 +33,7 @@ const api = {
 
 let state = null;
 let selectedVendorId = null;
+let selectedActor = "Admin";
 let vendorFilter = "All";
 let vendorSearch = "";
 
@@ -61,6 +68,9 @@ function jsonPost(payload) {
 
 async function loadState(nextState) {
   state = nextState || await api.state();
+  if (state.users?.length && !state.users.some((user) => user.name === selectedActor)) {
+    selectedActor = state.users[0].name;
+  }
   if (!selectedVendorId && state.vendors.length) selectedVendorId = state.vendors[0].id;
   if (!state.vendors.some((vendor) => vendor.id === selectedVendorId)) {
     selectedVendorId = state.vendors[0]?.id || null;
@@ -124,6 +134,7 @@ function bindDialogs() {
       reviewer: form.elements.reviewer.value,
       stage: form.elements.stage.value,
       dueDate: form.elements.dueDate.value,
+      actor: selectedActor,
       riskAnswers: Object.fromEntries(["pii", "financial", "storesData", "api", "critical", "ai", "subprocessors", "unknownSubprocessors"].map((key) => [key, form.elements[key].checked])),
     };
     await loadState(await api.createVendor(payload));
@@ -135,16 +146,28 @@ function bindDialogs() {
   document.getElementById("evidenceForm").addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = event.currentTarget;
-    await loadState(await api.submitEvidence(form.elements.vendorId.value, form.elements.evidenceId.value, {
-      fileName: form.elements.fileName.value,
-      validUntil: form.elements.validUntil.value || null,
-      notes: form.elements.notes.value,
-    }));
+    const file = form.elements.file.files[0];
+    if (file) {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("validUntil", form.elements.validUntil.value || "");
+      formData.append("notes", form.elements.notes.value);
+      formData.append("actor", selectedActor);
+      await loadState(await api.uploadEvidence(form.elements.vendorId.value, form.elements.evidenceId.value, formData));
+    } else {
+      await loadState(await api.submitEvidence(form.elements.vendorId.value, form.elements.evidenceId.value, {
+        fileName: form.elements.fileName.value,
+        validUntil: form.elements.validUntil.value || null,
+        notes: form.elements.notes.value,
+        actor: selectedActor,
+      }));
+    }
     evidenceDialog.close();
   });
 }
 
 function renderAll() {
+  renderActorSelect();
   renderDashboard();
   renderVendors();
   renderQueue("dashboardQueue", state.queue.slice(0, 4));
@@ -152,6 +175,17 @@ function renderAll() {
   renderTemplates();
   renderFollowups();
   renderAudit();
+}
+
+function renderActorSelect() {
+  const select = document.getElementById("actorSelect");
+  if (!select || !state.users) return;
+  select.innerHTML = state.users
+    .map((user) => `<option value="${user.name}" ${user.name === selectedActor ? "selected" : ""}>${user.name} - ${user.role}</option>`)
+    .join("");
+  select.onchange = () => {
+    selectedActor = select.value;
+  };
 }
 
 function renderDashboard() {
@@ -230,6 +264,7 @@ function evidenceItem(vendor, item) {
         <strong>${item.name}</strong>
         <div class="evidence-meta">${item.requiredType} - ${item.reviewerRole} - Validity: ${item.validityPeriod}</div>
         ${item.fileName ? `<div class="evidence-meta">File: ${item.fileName}${item.validUntil ? ` - Valid until ${item.validUntil}` : ""}</div>` : ""}
+        ${item.storedPath ? `<div class="evidence-meta">Stored securely in local evidence storage</div>` : ""}
         ${item.decisionReason ? `<div class="evidence-meta">Decision note: ${item.decisionReason}</div>` : ""}
         ${ai ? `<div class="ai-box"><strong>AI review (${ai.confidence}% confidence)</strong><br>${ai.summary}<br><span class="muted">Suggested action: ${ai.suggestedAction}</span></div>` : ""}
       </div>
@@ -263,11 +298,11 @@ function bindVendorDetailActions() {
     button.addEventListener("click", async () => {
       const action = button.dataset.action;
       if (action === "submit") return openEvidenceDialog(button.dataset.vendor, button.dataset.evidence);
-      if (action === "approve") return loadState(await api.decideEvidence(button.dataset.vendor, button.dataset.evidence, { decision: "Approved", reason: "Reviewer confirmed evidence is acceptable.", createIssue: false }));
-      if (action === "clarify") return loadState(await api.decideEvidence(button.dataset.vendor, button.dataset.evidence, { decision: "Needs Clarification", reason: "Additional detail is required before approval.", createIssue: true }));
-      if (action === "reject") return loadState(await api.decideEvidence(button.dataset.vendor, button.dataset.evidence, { decision: "Rejected", reason: "Evidence does not satisfy the requirement.", createIssue: true }));
-      if (action === "issue-accepted") return loadState(await api.updateIssue(button.dataset.vendor, button.dataset.issue, "Accepted Risk"));
-      if (action === "issue-resolved") return loadState(await api.updateIssue(button.dataset.vendor, button.dataset.issue, "Resolved"));
+      if (action === "approve") return loadState(await api.decideEvidence(button.dataset.vendor, button.dataset.evidence, { decision: "Approved", reason: "Reviewer confirmed evidence is acceptable.", createIssue: false, actor: selectedActor }));
+      if (action === "clarify") return loadState(await api.decideEvidence(button.dataset.vendor, button.dataset.evidence, { decision: "Needs Clarification", reason: "Additional detail is required before approval.", createIssue: true, actor: selectedActor }));
+      if (action === "reject") return loadState(await api.decideEvidence(button.dataset.vendor, button.dataset.evidence, { decision: "Rejected", reason: "Evidence does not satisfy the requirement.", createIssue: true, actor: selectedActor }));
+      if (action === "issue-accepted") return loadState(await api.updateIssue(button.dataset.vendor, button.dataset.issue, "Accepted Risk", selectedActor));
+      if (action === "issue-resolved") return loadState(await api.updateIssue(button.dataset.vendor, button.dataset.issue, "Resolved", selectedActor));
     });
   });
 }
@@ -279,6 +314,7 @@ function openEvidenceDialog(vendorId, evidenceId) {
   form.elements.vendorId.value = vendorId;
   form.elements.evidenceId.value = evidenceId;
   form.elements.fileName.value = evidence.fileName || `${vendor.name.toLowerCase().replaceAll(" ", "-")}-${evidence.name.toLowerCase().replaceAll(" ", "-")}.pdf`;
+  form.elements.file.value = "";
   form.elements.validUntil.value = evidence.validUntil || addDays(220);
   form.elements.notes.value = evidence.notes || "";
   document.getElementById("evidenceDialogTitle").textContent = `Submit ${evidence.name}`;
@@ -321,7 +357,7 @@ function renderFollowups() {
 
   document.querySelectorAll("[data-followup]").forEach((button) => {
     button.addEventListener("click", async () => {
-      await loadState(await api.updateFollowup(button.dataset.vendor, button.dataset.followup, button.dataset.status));
+      await loadState(await api.updateFollowup(button.dataset.vendor, button.dataset.followup, button.dataset.status, selectedActor));
     });
   });
 }
