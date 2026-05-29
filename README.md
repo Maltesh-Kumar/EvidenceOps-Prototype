@@ -14,6 +14,22 @@ It demonstrates:
 - SQLite-backed durable storage
 - Local evidence file storage for uploaded files
 - Persona-based audit actions
+- Token-driven dark NeoPOP-style design system
+- Component showcase for buttons, cards, inputs, tags, score meter, reward card, and bottom sheet pattern
+
+## Design system
+
+Design tokens live in:
+
+```text
+design-tokens.css
+```
+
+The global component styling and app theme live in:
+
+```text
+styles.css
+```
 
 ## Run locally
 

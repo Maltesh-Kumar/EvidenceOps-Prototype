@@ -44,6 +44,7 @@ const viewMeta = {
   templates: ["Reusable checklists", "Evidence requirement templates"],
   followups: ["Owner accountability", "Follow-ups and unresolved risks"],
   audit: ["Audit-ready history", "Timeline of evidence decisions"],
+  system: ["NeoPOP system", "Design system showcase"],
 };
 
 const roleHints = {
@@ -186,6 +187,7 @@ function renderAll() {
   renderTemplates();
   renderFollowups();
   renderAudit();
+  renderSystemShowcase();
 }
 
 function renderActorSelect() {
@@ -200,6 +202,7 @@ function renderActorSelect() {
   };
   const role = currentRole();
   document.getElementById("roleHint").textContent = roleHints[role] || "High-risk vendors, evidence gaps, and next actions in one place.";
+  document.getElementById("profileStatus").textContent = `${role} mode`;
   document.getElementById("newVendorBtn").hidden = !can("createVendor");
 }
 
@@ -359,6 +362,7 @@ function filteredVendors() {
 }
 
 function vendorDetail(vendor) {
+  const trustScore = vendorTrustScore(vendor);
   return `
     <div class="detail-content">
       <div class="status-row">
@@ -367,6 +371,14 @@ function vendorDetail(vendor) {
       </div>
       <h2>${vendor.name}</h2>
       <p class="muted">${vendor.category} - ${vendor.stage}</p>
+      <div class="score-row">
+        ${scoreMeter(trustScore, "trust")}
+        <div>
+          <span class="eyebrow">Vendor trust score</span>
+          <h3>${trustScore >= 80 ? "ready to unlock" : trustScore >= 50 ? "needs review" : "blocked"}</h3>
+          <p class="muted">Calculated from evidence progress, risk tier, blockers, and unresolved issues.</p>
+        </div>
+      </div>
       <div class="fact-grid">
         ${fact("Owner", vendor.owner)}
         ${fact("Reviewer", vendor.reviewer)}
@@ -522,6 +534,97 @@ function renderAudit() {
       <div>${entry.action}${entry.target ? `<br><span>${entry.target}</span>` : ""}</div>
     </article>
   `).join("");
+}
+
+function renderSystemShowcase() {
+  const target = document.getElementById("systemShowcase");
+  if (!target) return;
+  target.innerHTML = `
+    <article class="neo-card system-card">
+      <span class="eyebrow">Buttons</span>
+      <h2>Tactile actions</h2>
+      <p class="muted">Press states compress the surface like a physical control.</p>
+      <div class="row-actions">
+        <button class="primary">Primary</button>
+        <button class="secondary">Secondary</button>
+        <button class="accent-button">Accent</button>
+        <button class="ghost-button">Ghost</button>
+      </div>
+    </article>
+    <article class="neo-card system-card">
+      <span class="eyebrow">Inputs</span>
+      <h2>Dark form controls</h2>
+      <label>Text input<input placeholder="Vendor name" /></label>
+      <label>Select<select><option>Reviewer</option><option>Vendor Owner</option></select></label>
+      <div class="check-grid">
+        <label><input type="checkbox" checked /> Required</label>
+        <label><input type="radio" checked /> Active</label>
+      </div>
+      <label class="switch"><input type="checkbox" checked /><span></span>Auto reminders</label>
+    </article>
+    <article class="neo-card system-card">
+      <span class="eyebrow">Tags</span>
+      <h2>Micro status</h2>
+      <div class="status-row">
+        ${pill("success", "success")}
+        ${pill("warning", "warning")}
+        ${pill("error", "error")}
+        ${pill("info", "info")}
+        ${pill("neutral", "neutral")}
+      </div>
+    </article>
+    <article class="neo-card system-card">
+      <span class="eyebrow">Score</span>
+      <h2>Trust meter</h2>
+      ${scoreMeter(86, "credit")}
+      <p class="muted">A fast read on health, risk, and readiness.</p>
+    </article>
+    ${rewardCard("members only", "unlock audit confidence", "Resolve blockers to reveal approval-ready status.", false)}
+    <article class="neo-card system-card">
+      <div class="icon-slot">AI</div>
+      <span class="eyebrow">Action card</span>
+      <h2>settle blockers</h2>
+      <p class="muted">A premium elevated surface for high-intent workflows.</p>
+      <button class="accent-button">Resolve now</button>
+    </article>
+    <article class="neo-card system-card">
+      <span class="eyebrow">Bottom sheet</span>
+      <h2>Slide-up surface</h2>
+      <div class="bottom-sheet-preview">
+        <strong>next best action</strong>
+        <p class="muted">Request current subprocessor list before approval.</p>
+        <button class="accent-button">Generate follow-up</button>
+      </div>
+    </article>
+  `;
+}
+
+function vendorTrustScore(vendor) {
+  const base = vendor.risk.tier === "High" ? 62 : vendor.risk.tier === "Medium" ? 74 : 86;
+  const approvedBoost = Math.round((vendor.progress || 0) * 0.24);
+  const blockers = vendor.evidence.filter((item) => ["Missing", "Rejected", "Expired", "Needs Clarification"].includes(item.status)).length;
+  const issuePenalty = vendor.riskIssues.filter((issue) => !["Resolved", "Accepted Risk"].includes(issue.status)).length * 10;
+  return Math.max(12, Math.min(100, base + approvedBoost - blockers * 12 - issuePenalty));
+}
+
+function scoreMeter(score, label) {
+  const tone = score >= 80 ? "success" : score >= 50 ? "warning" : "error";
+  return `
+    <div class="score-meter ${tone}" style="--score:${score}" aria-label="${label} score ${score}">
+      <div class="score-meter-inner">${score}</div>
+    </div>
+  `;
+}
+
+function rewardCard(label, title, description, locked) {
+  return `
+    <article class="reward-card ${locked ? "locked" : ""}">
+      <span class="eyebrow">${label}</span>
+      <strong>${title}</strong>
+      <p>${description}</p>
+      <button class="primary">${locked ? "Locked" : "Claim"}</button>
+    </article>
+  `;
 }
 
 function vendorCard(vendor) {

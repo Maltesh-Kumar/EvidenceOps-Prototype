@@ -4,6 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>EvidenceOps Assistant Prototype</title>
+    <link rel="stylesheet" href="design-tokens.css" />
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
@@ -23,6 +24,7 @@
           <button class="nav-item" data-view="templates">Templates</button>
           <button class="nav-item" data-view="followups">Follow-ups</button>
           <button class="nav-item" data-view="audit">Audit Trail</button>
+          <button class="nav-item" data-view="system">Design System</button>
         </nav>
         <div class="sidebar-panel">
           <span class="eyebrow">Live trust posture</span>
@@ -39,6 +41,7 @@
             <p id="roleHint">High-risk vendors, evidence gaps, and next actions in one place.</p>
           </div>
           <div class="topbar-actions">
+            <span class="profile-chip" id="profileStatus">Members only</span>
             <label class="actor-switcher" aria-label="Role">
               <select id="actorSelect"></select>
             </label>
@@ -46,10 +49,10 @@
           </div>
         </header>
         <section class="trust-strip" aria-label="EvidenceOps trust signals">
-          <div><span>Autonomous risk tiering</span><strong>PII, AI, API, criticality</strong></div>
-          <div><span>AI-assisted review</span><strong>Summaries, flags, confidence</strong></div>
-          <div><span>Human decisions</span><strong>Approve, reject, clarify, accept risk</strong></div>
-          <div><span>Audit-ready history</span><strong>Every action timestamped</strong></div>
+          <div><span>Risk engine</span><strong>score vendors</strong></div>
+          <div><span>AI assist</span><strong>flag gaps</strong></div>
+          <div><span>Reviewer mode</span><strong>decide fast</strong></div>
+          <div><span>Audit vault</span><strong>prove trust</strong></div>
         </section>
 
         <section class="view active" id="dashboardView">
@@ -149,6 +152,10 @@
             </div>
             <div class="timeline" id="auditTimeline"></div>
           </section>
+        </section>
+
+        <section class="view" id="systemView">
+          <div class="system-showcase" id="systemShowcase"></div>
         </section>
       </main>
     </div>
